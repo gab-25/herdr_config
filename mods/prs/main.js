@@ -1,6 +1,6 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar } from "gpui-base";
-import { spaces, panes, focused, theme, run, checking } from "herdr";
+import { spaces, panes, focused, theme, checking } from "herdr";
 import { cli, glabHosts, remoteOf, forgeOf, openUrl, ago } from "./forge.js";
 
 // Where the person is working: the focused pane's folder, else the space's.
@@ -119,13 +119,7 @@ export default class Prs extends View {
     cx.notify();
   }
 
-  review(it) {
-    const kind = it.forge === "github" ? "PR" : "MR";
-    run("tab.new", { name: `review ${it.ref}`, argv: ["claude"], task: `Review the ${kind} ${it.url}` });
-  }
-
   row(it, t) {
-    const stop = (_e, cx) => cx.stop_propagation();
     const badge = it.forge === "github" ? ["GH", t.ansi5] : ["GL", t.ansi3];
     const meta = [this.scope === "all" ? it.repo : null, it.author, it.branch].filter(Boolean).join(" · ");
     return h_flex().id(`pr-${it.url}`).flex_none().px(8).py(6).gap(8).items_start().rounded(0).cursor_pointer()
@@ -138,10 +132,7 @@ export default class Prs extends View {
         .child(h_flex().gap(6).text_size(11).text_color(t.dim).min_w(0)
           .when(it.draft, (e) => e.child(div().px(4).rounded(0).border_1().border_color(t.border).child("Draft")))
           .child(div().flex_1().min_w(0).truncate().child(meta))
-          .child(div().flex_none().child(ago(it.updated)))))
-      .child(div().id(`review-${it.url}`).flex_none().h(22).px(7).flex().items_center().rounded(0).text_size(11)
-        .border_1().border_color(t.border).text_color(t.muted).hover((s) => s.bg(t.raised).text_color(t.foreground))
-        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.review(it); }).child("Review"));
+          .child(div().flex_none().child(ago(it.updated)))));
   }
 
   section(title, list, t) {
