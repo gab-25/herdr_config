@@ -7,7 +7,7 @@ The `dev-workspace` layout (pixel-art style, gruvbox theme), keys, settings and 
 - `layouts/dev-workspace.json`: the layout
 - `themes/gruvbox.json`, `settings.json`, `keys.json`
 - `fonts/`: Departure Mono (OFL) for the UI
-- `mods/`: `prs` (GitHub and GitLab PRs/MRs), `run` (script dock), `dev-tabs`, `dev-status`, `px-*` (square-cornered clones of Herdr's mods)
+- `mods/`: `prs` (GitHub and GitLab PRs/MRs), `run` (script dock), `dev-tabs`, `dev-status`, `dev-restore` (after a reboot, restarts `claude --continue`, `lazygit`, `nvim` in tabs with those names), `px-*` (square-cornered clones of Herdr's mods)
 
 ## Install on another machine
 

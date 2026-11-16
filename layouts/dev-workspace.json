@@ -211,5 +211,15 @@
     12,
     16
   ],
-  "ui_font": "Departure Mono"
+  "ui_font": "Departure Mono",
+  "floating": [
+    {
+      "id": "restore",
+      "content": {
+        "mod": "dev-restore"
+      },
+      "edge": "bottom",
+      "align": "end"
+    }
+  ]
 }
