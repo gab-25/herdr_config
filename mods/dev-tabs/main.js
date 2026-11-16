@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, exec, notify, home } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -57,6 +57,25 @@ export default class Tabs extends View {
     s.steps++;
     s.last = now;
     run(e.delta.y > 0 ? "tab.prev" : "tab.next");
+  }
+
+  // Opens the space in VS Code: the repo of its first terminal (as the default
+  // mods take a space's repo), else that terminal's folder, else the space's.
+  openInCode(space, cx) {
+    const first = space.tabs.map(tab => panes().find(p => p.tab === tab.id && p.cwd)).find(Boolean);
+    const folder = first?.cwd || space.folder || (space.machine ? "." : home());
+    const on = space.machine ?? undefined;
+    cx.spawn(async () => {
+      try {
+        const git = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: folder, on, timeout: 5000 }).catch(() => null);
+        const root = git?.code === 0 && git.stdout.trim() ? git.stdout.trim() : folder;
+        const args = space.machine ? ["--remote", `ssh-remote+${space.machine}`, root] : [root];
+        const r = await exec("code", args, { timeout: 15000 });
+        if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
+      } catch (e) {
+        notify({ title: "VS Code didn't open", body: String(e?.message ?? e), level: "error" });
+      }
+    });
   }
 
   // The side panel is remembered per space: switching shows that space's choice
@@ -151,6 +170,9 @@ export default class Tabs extends View {
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
       .child(panelButton("prs", "PRs", "mods/prs/pr.svg"))
+      .when(Boolean(space), el => el.child(h_flex().id("open-vscode").h(26).px(8).gap(5).flex_none().items_center().rounded(0)
+        .text_size(12).bg(t.chrome).text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
+        .on_click((_e, cx) => this.openInCode(space, cx)).child(svg("mods/dev-tabs/vscode.svg").size(14)).child("Code")))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/dev-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/dev-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(button("close-window", w.platform === "windows" ? svg("mods/dev-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
