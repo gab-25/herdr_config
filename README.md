@@ -9,20 +9,23 @@ The `dev-workspace` layout (pixel-art style, gruvbox theme), keys, settings and 
 - `fonts/`: Departure Mono (OFL) for the UI
 - `mods/`: `prs` (GitHub and GitLab PRs/MRs), `run` (script dock), `dev-tabs`, `dev-status`, `px-*` (square-cornered clones of Herdr's mods)
 
-## Restore on another machine
+## Install on another machine
 
-With Herdr installed and started at least once:
+Install Herdr and start it once, then:
 
 ```sh
-cd ~/.config/herdr-app
-git init
-git remote add origin <repo-url>
-git fetch origin
-git checkout -f -B main origin/main   # overwrites tracked files only
-herdr-app do layout.switch --name dev-workspace
+curl -fsSL https://raw.githubusercontent.com/gab-25/herdr_config/main/install.sh | sh
 ```
 
-The PRs panel needs `gh` and/or `glab` logged in.
+Or from a clone: `git clone https://github.com/gab-25/herdr_config.git /tmp/herdr-setup && sh /tmp/herdr-setup/install.sh`.
+
+The script turns `~/.config/herdr-app` (or `$HERDR_APP_HOME`) into a clone of this repo,
+tracking `origin/main`. Files it overwrites (e.g. that machine's `keys.json`) are copied
+to `.backup-<time>/` first; Herdr's own files are left alone. If Herdr is running it
+switches to `dev-workspace`, and it tells you if `gh` or `glab` still needs `auth login`
+(the PRs panel and the CI status use them).
+
+Update later with `git -C ~/.config/herdr-app pull`: Herdr reloads the files live.
 
 ## New mods
 
