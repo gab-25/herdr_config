@@ -62,7 +62,7 @@ async function discover(dir, on) {
 
 export default class RunDock extends View {
   init(_props, cx) {
-    this.groups = []; this.dir = null; this.exits = {};
+    this.groups = []; this.dir = null; this.infos = {}; this.asking = new Set();
     try { this.runs = JSON.parse(localStorage.getItem("runs") ?? "{}") ?? {}; } catch { this.runs = {}; }
     if (checking()) return;
     this.load(cx);
@@ -93,30 +93,55 @@ export default class RunDock extends View {
 
   key(item) { return `${this.on ?? ""}|${this.dir}|${item.cmd}`; }
 
-  // live | finished | null, from the core's terminals; exit codes asked once.
+  // What the core says about a run's address: { label, exit, live }, or "gone".
+  ask(addr, cx) {
+    if (this.asking.has(addr)) return;
+    this.asking.add(addr);
+    cx.spawn(async (cx) => {
+      const r = await hc(["get", addr, "--json"]).catch(() => null);
+      let info = "gone";
+      try {
+        if (r?.code === 0) {
+          const j = JSON.parse(r.stdout);
+          info = { label: j.labels?.["herdr.run"] ?? null, exit: j.exit_code ?? null, live: j.state !== "finished" };
+        }
+      } catch {}
+      this.asking.delete(addr);
+      this.infos[addr] = info;
+      cx.notify();
+    });
+  }
+
+  // The core can hand a dead run's address to another terminal (after a reboot):
+  // an address is this run only while it carries this run's label.
+  ours(addr, cmd) {
+    const info = this.infos[addr];
+    return Boolean(info) && info !== "gone" && info.label === cmd;
+  }
+
+  drop(k, addr) {
+    if (this.runs[k] !== addr) return;
+    delete this.runs[k]; delete this.infos[addr]; this.save();
+  }
+
+  // live | finished | null. Nothing shows until the core confirms the label.
   state(item, cx) {
-    const addr = this.runs[this.key(item)];
+    const k = this.key(item), addr = this.runs[k];
     if (!addr || checking()) return null;
     const t = terminals().find((x) => x.address === addr);
-    if (t && (t.state ?? "live") !== "finished") return { addr, live: true };
-    if (!(addr in this.exits)) {
-      this.exits[addr] = undefined;
-      cx.spawn(async (cx) => {
-        const r = await hc(["get", addr, "--json"]).catch(() => null);
-        let code = null;
-        try { code = r?.code === 0 ? JSON.parse(r.stdout).exit_code ?? null : "gone"; } catch { code = "gone"; }
-        this.exits[addr] = code;
-        cx.notify();
-      });
-    }
-    if (this.exits[addr] === "gone") return null;
-    return { addr, live: false, code: this.exits[addr] };
+    const live = Boolean(t) && (t.state ?? "live") !== "finished";
+    const info = this.infos[addr];
+    // Ask when the core hasn't answered yet, and again for the exit code once a live run ends.
+    if (info === undefined || (info !== "gone" && info.live && !live)) this.ask(addr, cx);
+    if (!info) return null;
+    if (!this.ours(addr, item.cmd)) { this.drop(k, addr); return null; }
+    return live ? { addr, live: true } : { addr, live: false, code: info.live ? undefined : info.exit };
   }
 
   start(item, cx) {
     const k = this.key(item), old = this.runs[k], dir = this.dir, on = this.on;
     cx.spawn(async (cx) => {
-      if (old) await hc(["rm", old]).catch(() => null);
+      if (old && this.ours(old, item.cmd)) await hc(["rm", old]).catch(() => null);
       const args = ["run", "--json", "--bg", "--no-parent", "--cwd", dir, "--label", `herdr.run=${item.cmd}`];
       if (on) args.push("--on", on);
       const r = await hc([...args, "--", "bash", "-lic", item.cmd]).catch((e) => ({ code: 1, stderr: String(e) }));
@@ -167,7 +192,12 @@ export default class RunDock extends View {
     const t = theme();
     const running = this.groups.flatMap((g) => g.items).filter((i) => this.state(i, cx)?.live).length;
     // Every run this dock started, in any folder: the status bar shows the count.
-    const live = Object.values(this.runs).filter((a) => terminals().some((x) => x.address === a && (x.state ?? "live") !== "finished")).length;
+    // Runs in other folders are checked too, so the count never includes a reused address.
+    const live = checking() ? 0 : Object.entries(this.runs).filter(([k, a]) => {
+      if (this.infos[a] === undefined) this.ask(a, cx);
+      const cmd = k.split("|").slice(2).join("|");
+      return this.ours(a, cmd) && terminals().some((x) => x.address === a && (x.state ?? "live") !== "finished");
+    }).length;
     if (!checking() && shared("run.live") !== live) setShared("run.live", live);
     const folder = this.dir ? this.dir.split("/").filter(Boolean).pop() : null;
     return v_flex().id("run-dock").size_full().min_h(0).rounded(0).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(12)
