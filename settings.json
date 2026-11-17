@@ -5,5 +5,9 @@
   },
   "font_ligatures": false,
   "minimum_contrast": 1.0,
-  "theme": "gruvbox"
+  "theme": "gruvbox",
+  "colors": {
+    "accent": "#fabd2f",
+    "working": "#fabd2f"
+  }
 }

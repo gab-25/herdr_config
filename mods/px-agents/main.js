@@ -345,7 +345,8 @@ export default class Agents extends View {
         .rounded(0)
         .items_center()
         .gap(9)
-        .when(a.focused, (el) => el.bg(t.selected))
+        .relative()
+        .when(a.focused, (el) => el.bg(t.selected).child(div().absolute().left(0).top(0).bottom(0).w(3).bg(t.accent)))
         .cursor_pointer()
         .hover((s) => s.bg(t.hover))
         .on_hover((on, cx) => {
@@ -428,7 +429,7 @@ export default class Agents extends View {
             .flex_none()
             .items_center()
             .justify_between()
-            .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Agents"))
+            .child(div().text_size(11.5).font_medium().text_color(t.accent).child(h_flex().gap(8).items_center().child(div().size(6).bg(t.accent)).child("Agents")))
             .child(
               div()
                 .id("ag-sort")

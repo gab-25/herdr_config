@@ -73,7 +73,7 @@ export default class DevStatus extends View {
     if (!dock) return div();
     const open = !dock.hidden, live = Number(shared("run.live") ?? 0);
     return h_flex().id("run-toggle").h(20).px(7).gap(5).items_center().rounded(0).cursor_pointer()
-      .bg(open ? t.selected : t.chrome).text_color(open ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
+      .bg(open ? t.selected : t.chrome).text_color(t.accent).hover((s) => s.bg(t.hover))
       .on_click(() => run("layout.toggle", { id: "run-dock" }))
       .child(div().text_size(9).child("▶")).child("Run")
       .when(live > 0, (e) => e.child(div().px(4).rounded(0).text_size(10).bg(t.working + "26").text_color(t.working).child(String(live))));
@@ -101,7 +101,7 @@ export default class DevStatus extends View {
     return h_flex().size_full().px(14).gap(16).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
       .child(label(space?.machine ? "server" : "monitor", space?.machine ?? "This computer"))
       .when(Boolean(g?.branch), (el) => el.child(h_flex().gap(6).items_center()
-        .child(label("branch", g.branch))
+        .child(div().text_color(t.accent).child(label("branch", g.branch)))
         .when(g.ahead > 0, (e) => e.child(div().text_color(t.ansi2).child(`↑${g.ahead}`)))
         .when(g.behind > 0, (e) => e.child(div().text_color(t.blocked).child(`↓${g.behind}`)))
         .when(!g.upstream, (e) => e.child(div().text_color(t.dim).child("no upstream")))))
