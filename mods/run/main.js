@@ -68,6 +68,13 @@ export default class RunDock extends View {
     this.load(cx);
   }
 
+  // Exit status of a finished run, as the chip shows it.
+  outcome(st) {
+    if (st.killed) return { status: "stopped", color: "yellow" };
+    if (st.code === undefined || st.code === null) return { status: "finished", color: "green" };
+    return st.code === 0 ? { status: "exit 0", color: "green" } : { status: `exit ${st.code}`, color: "red" };
+  }
+
   save() { try { localStorage.setItem("runs", JSON.stringify(this.runs)); } catch {} }
 
   // The project folder: the focused folder if it has something to run, else its git root.
@@ -103,7 +110,8 @@ export default class RunDock extends View {
       try {
         if (r?.code === 0) {
           const j = JSON.parse(r.stdout);
-          info = { label: j.labels?.["herdr.run"] ?? null, exit: j.exit_code ?? null, live: j.state !== "finished" };
+          info = { label: j.labels?.["herdr.run"] ?? null, exit: j.exit_code ?? null, live: j.state !== "finished",
+            killed: j.state === "finished" && (j.reason === "killed" || j.signal != null) };
         }
       } catch {}
       this.asking.delete(addr);
@@ -135,13 +143,17 @@ export default class RunDock extends View {
     if (info === undefined || (info !== "gone" && info.live && !live)) this.ask(addr, cx);
     if (!info) return null;
     if (!this.ours(addr, item.cmd)) { this.drop(k, addr); return null; }
-    return live ? { addr, live: true } : { addr, live: false, code: info.live ? undefined : info.exit };
+    return live ? { addr, live: true } : { addr, live: false, code: info.live ? undefined : info.exit, killed: !info.live && info.killed };
   }
 
   start(item, cx) {
     const k = this.key(item), old = this.runs[k], dir = this.dir, on = this.on;
     cx.spawn(async (cx) => {
-      if (old && this.ours(old, item.cmd)) await hc(["rm", old]).catch(() => null);
+      // Remove the previous finished run, once the core confirms it's still this run's terminal.
+      if (old && this.infos[old] === undefined) {
+        const g = await hc(["get", old, "--json"]).catch(() => null);
+        try { if (g?.code === 0 && JSON.parse(g.stdout).labels?.["herdr.run"] === item.cmd) await hc(["rm", old]).catch(() => null); } catch {}
+      } else if (old && this.ours(old, item.cmd)) await hc(["rm", old]).catch(() => null);
       const args = ["run", "--json", "--bg", "--no-parent", "--cwd", dir, "--label", `herdr.run=${item.cmd}`];
       if (on) args.push("--on", on);
       const r = await hc([...args, "--", "bash", "-lic", item.cmd]).catch((e) => ({ code: 1, stderr: String(e) }));
@@ -150,7 +162,21 @@ export default class RunDock extends View {
         const addr = JSON.parse(r.stdout).address;
         this.runs[k] = on && !addr.includes("/") ? `${on}/${addr}` : addr;
         this.save(); this.error = null;
-      } catch (e) { this.error = `${item.name}: ${e.message || "hc run failed"}`; }
+      } catch (e) { this.error = `${item.name}: ${e.message || "hc run failed"}`; cx.notify(); return; }
+      cx.notify();
+      // Show it in a pane below the focused one (a new tab when no pane has focus). The app learns
+      // about a new terminal a moment after the core starts it, and terminal.keep fails before that.
+      const addr = this.runs[k];
+      for (let i = 0; i < 50 && !terminals().some((x) => x.address === addr); i++) await cx.sleep(100);
+      run("terminal.keep", focused()?.pane ? { terminal: addr, place: "down" } : { terminal: addr });
+    });
+  }
+
+  // terminal.kill only reaches terminals with a pane in a space; runs have none, so ask the core.
+  stopRun(addr, cx) {
+    cx.spawn(async (cx) => {
+      const r = await hc(["kill", addr]).catch((e) => ({ code: 1, stderr: String(e) }));
+      if (r.code !== 0) this.error = `stop ${addr}: ${(r.stderr || r.stdout || "").trim() || "hc kill failed"}`;
       cx.notify();
     });
   }
@@ -163,46 +189,45 @@ export default class RunDock extends View {
 
   chip(item, t, cx) {
     const st = this.state(item, cx), stop = (_e, cx) => cx.stop_propagation();
-    const failed = st && !st.live && st.code !== 0 && st.code !== null && st.code !== undefined;
+    const out = st && !st.live ? this.outcome(st) : null, failed = out?.color === "red";
+    const color = out?.color === "red" ? t.ansi1 : out?.color === "yellow" ? t.ansi3 : t.ansi2;
     const dot = !st ? null : st.live
       ? div().text_size(11).frames(["▖", "▘", "▝", "▗"], 140).text_color(t.working)
-      : div().size(7).rounded(0).bg(failed ? t.ansi1 : t.ansi2);
+      : div().size(7).rounded(0).bg(color);
     const icon = (id, glyph, title, fn) => div().id(id).size(18).flex().items_center().justify_center().rounded(0).text_size(10)
       .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => { cx.stop_propagation(); fn(cx); }).child(glyph);
+      .on_click((_e, cx) => { cx.stop_propagation(); fn(cx); }).tooltip(title).child(glyph);
     const id = `run-${item.cmd}`;
-    return h_flex().id(id).flex_none().h(26).pl(9).pr(st ? 3 : 9).gap(6).items_center().rounded(0).cursor_pointer()
+    return h_flex().id(id).flex_none().h(26).pl(9).pr(st ? 3 : 9).gap(6).items_center().rounded(0).when(!st, (e) => e.cursor_pointer())
       .border_1().border_color(st?.live ? t.working + "80" : failed ? t.ansi1 + "80" : t.border)
       .bg(st ? t.raised : t.background).hover((s) => s.bg(t.hover))
-      // Not running: start it. Running or ended: look at its output.
-      .on_click((_e, cx) => st ? run("terminal.peek", { terminal: st.addr }) : this.start(item, cx))
+      // Not started: start it in a pane. Started: nothing (■ stops it, ↻ runs it again, ✕ clears it).
+      .on_click((_e, cx) => { if (!st) this.start(item, cx); })
       .when(Boolean(dot), (e) => e.child(dot))
       .child(div().text_size(12).text_color(st ? t.foreground : t.muted).child(item.name))
-      .when(Boolean(st) && !st?.live && st?.code !== null && st?.code !== undefined && failed, (e) => e.child(div().text_size(10).text_color(t.ansi1).child(String(st.code))))
+      .when(failed, (e) => e.child(div().text_size(10).text_color(t.ansi1).child(String(st.code))))
+      .when(out?.color === "yellow", (e) => e.child(div().text_size(10).text_color(t.ansi3).child("stopped")))
       .when(Boolean(st?.live), (e) => e
-        .child(icon(`${id}-pane`, "⤓", "pane", () => run("terminal.keep", { terminal: st.addr, place: "down" })))
-        .child(icon(`${id}-stop`, "■", "stop", () => run("terminal.kill", { terminal: st.addr }))))
+        .child(icon(`${id}-stop`, "■", "Stop", (cx) => this.stopRun(st.addr, cx))))
       .when(Boolean(st) && !st?.live, (e) => e
-        .child(icon(`${id}-again`, "↻", "again", (cx) => this.start(item, cx)))
-        .child(icon(`${id}-x`, "✕", "clear", (cx) => this.forget(item, st, cx))));
+        .child(icon(`${id}-again`, "↻", "Run again", (cx) => this.start(item, cx)))
+        .child(icon(`${id}-x`, "✕", "Clear", (cx) => this.forget(item, st, cx))));
   }
 
-  // A live run from another folder: its folder and command; click to peek, then pane or stop.
+  // A live run from another folder: its folder and command, with stop.
   otherChip(r, t) {
     const stop = (_e, cx) => cx.stop_propagation(), id = `other-${r.k}`;
     const folder = (r.on ? `${r.on}:` : "") + (r.dir.split("/").filter(Boolean).pop() ?? r.dir);
     const icon = (iid, glyph, fn) => div().id(iid).size(18).flex().items_center().justify_center().rounded(0).text_size(10)
       .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => { cx.stop_propagation(); fn(); }).child(glyph);
-    return h_flex().id(id).flex_none().h(26).pl(9).pr(3).gap(6).items_center().rounded(0).cursor_pointer()
+      .on_click((_e, cx) => { cx.stop_propagation(); fn(cx); }).child(glyph);
+    return h_flex().id(id).flex_none().h(26).pl(9).pr(3).gap(6).items_center().rounded(0)
       .border_1().border_color(t.working + "80").bg(t.raised).hover((s) => s.bg(t.hover))
       .tooltip(`${r.dir}\n${r.cmd}`)
-      .on_click(() => run("terminal.peek", { terminal: r.addr }))
       .child(div().text_size(11).frames(["▖", "▘", "▝", "▗"], 140).text_color(t.working))
       .child(div().max_w(200).truncate().text_size(11).text_color(t.dim).child(folder))
       .child(div().text_size(12).text_color(t.foreground).child(r.cmd))
-      .child(icon(`${id}-pane`, "⤓", () => run("terminal.keep", { terminal: r.addr, place: "down" })))
-      .child(icon(`${id}-stop`, "■", () => run("terminal.kill", { terminal: r.addr })));
+      .child(icon(`${id}-stop`, "■", (cx) => this.stopRun(r.addr, cx)));
   }
 
   render(cx) {
