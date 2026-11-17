@@ -187,17 +187,38 @@ export default class RunDock extends View {
         .child(icon(`${id}-x`, "✕", "clear", (cx) => this.forget(item, st, cx))));
   }
 
+  // A live run from another folder: its folder and command; click to peek, then pane or stop.
+  otherChip(r, t) {
+    const stop = (_e, cx) => cx.stop_propagation(), id = `other-${r.k}`;
+    const folder = (r.on ? `${r.on}:` : "") + (r.dir.split("/").filter(Boolean).pop() ?? r.dir);
+    const icon = (iid, glyph, fn) => div().id(iid).size(18).flex().items_center().justify_center().rounded(0).text_size(10)
+      .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
+      .on_click((_e, cx) => { cx.stop_propagation(); fn(); }).child(glyph);
+    return h_flex().id(id).flex_none().h(26).pl(9).pr(3).gap(6).items_center().rounded(0).cursor_pointer()
+      .border_1().border_color(t.working + "80").bg(t.raised).hover((s) => s.bg(t.hover))
+      .tooltip(`${r.dir}\n${r.cmd}`)
+      .on_click(() => run("terminal.peek", { terminal: r.addr }))
+      .child(div().text_size(11).frames(["▖", "▘", "▝", "▗"], 140).text_color(t.working))
+      .child(div().max_w(200).truncate().text_size(11).text_color(t.dim).child(folder))
+      .child(div().text_size(12).text_color(t.foreground).child(r.cmd))
+      .child(icon(`${id}-pane`, "⤓", () => run("terminal.keep", { terminal: r.addr, place: "down" })))
+      .child(icon(`${id}-stop`, "■", () => run("terminal.kill", { terminal: r.addr })));
+  }
+
   render(cx) {
     if (!checking() && JSON.stringify(location()) !== this.context) this.load(cx);
     const t = theme();
     const running = this.groups.flatMap((g) => g.items).filter((i) => this.state(i, cx)?.live).length;
     // Every run this dock started, in any folder: the status bar shows the count.
     // Runs in other folders are checked too, so the count never includes a reused address.
-    const live = checking() ? 0 : Object.entries(this.runs).filter(([k, a]) => {
-      if (this.infos[a] === undefined) this.ask(a, cx);
-      const cmd = k.split("|").slice(2).join("|");
-      return this.ours(a, cmd) && terminals().some((x) => x.address === a && (x.state ?? "live") !== "finished");
-    }).length;
+    const liveRuns = checking() ? [] : Object.entries(this.runs).map(([k, addr]) => {
+      if (this.infos[addr] === undefined) this.ask(addr, cx);
+      const [on, dir, ...rest] = k.split("|");
+      return { k, addr, on: on || null, dir, cmd: rest.join("|") };
+    }).filter((r) => this.ours(r.addr, r.cmd) && terminals().some((x) => x.address === r.addr && (x.state ?? "live") !== "finished"));
+    const live = liveRuns.length;
+    // Live runs started from other folders: listed below, so the count never points nowhere.
+    const elsewhere = liveRuns.filter((r) => r.dir !== this.dir || r.on !== (this.on ?? null));
     if (!checking() && shared("run.live") !== live) setShared("run.live", live);
     const folder = this.dir ? this.dir.split("/").filter(Boolean).pop() : null;
     return v_flex().id("run-dock").size_full().min_h(0).rounded(0).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(12)
@@ -217,6 +238,10 @@ export default class RunDock extends View {
           .child(div().w(56).flex_none().text_size(11).text_color(t.dim).child(g.kind))
           .child(h_flex().id(`run-row-${g.kind}`).flex_1().min_w(0).gap(6).overflow_x_scroll().children(g.items.map((i) => this.chip(i, t, cx))))))
         .when(!this.groups.length, (e) => e.child(div().px(12).py(4).text_color(t.dim)
-          .child(this.loading ? "Looking for scripts…" : "Nothing to run here: no package.json, Makefile, compose file or justfile"))));
+          .child(this.loading ? "Looking for scripts…" : "Nothing to run here: no package.json, Makefile, compose file or justfile")))
+        .when(elsewhere.length > 0, (e) => e.child(h_flex().flex_none().px(12).gap(10).items_center()
+          .child(div().w(56).flex_none().text_size(11).text_color(t.dim).child("other"))
+          .child(h_flex().id("run-row-elsewhere").flex_1().min_w(0).gap(6).overflow_x_scroll()
+            .children(elsewhere.map((r) => this.otherChip(r, t)))))));
   }
 }
