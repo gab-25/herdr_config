@@ -164,11 +164,17 @@ export default class RunDock extends View {
         this.save(); this.error = null;
       } catch (e) { this.error = `${item.name}: ${e.message || "hc run failed"}`; cx.notify(); return; }
       cx.notify();
-      // Show it in a pane below the focused one (a new tab when no pane has focus). The app learns
-      // about a new terminal a moment after the core starts it, and terminal.keep fails before that.
+      // Show it in a new tab. The app learns about a new terminal a moment after the core
+      // starts it, and terminal.keep fails before that.
       const addr = this.runs[k];
       for (let i = 0; i < 50 && !terminals().some((x) => x.address === addr); i++) await cx.sleep(100);
-      run("terminal.keep", focused()?.pane ? { terminal: addr, place: "down" } : { terminal: addr });
+      run("terminal.keep", { terminal: addr });
+      // The new tab is named after the terminal's address; name it after the script once it exists.
+      for (let i = 0; i < 50; i++) {
+        const p = panes().find((x) => x.terminal === addr);
+        if (p) { run("tab.rename", { id: p.tab, name: item.name }); break; }
+        await cx.sleep(100);
+      }
     });
   }
 
