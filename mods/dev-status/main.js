@@ -73,7 +73,7 @@ export default class DevStatus extends View {
     if (!dock) return div();
     const open = !dock.hidden, live = Number(shared("run.live") ?? 0);
     return h_flex().id("run-toggle").h(20).px(7).gap(5).items_center().rounded(0).cursor_pointer()
-      .bg(open ? t.selected : t.chrome).text_color(t.accent).hover((s) => s.bg(t.hover))
+      .bg(open ? t.selected : t.chrome).text_color(open ? t.foreground : t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => run("layout.toggle", { id: "run-dock" }))
       .child(div().text_size(9).child("▶")).child("Run")
       .when(live > 0, (e) => e.child(div().px(4).rounded(0).text_size(10).bg(t.working + "26").text_color(t.working).child(String(live))));
