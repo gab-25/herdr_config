@@ -128,10 +128,10 @@ export default class Prs extends View {
       .child(v_flex().flex_1().min_w(0).gap(2)
         .child(h_flex().gap(6).min_w(0)
           .child(div().flex_none().text_color(t.dim).child(it.ref))
-          .child(div().flex_1().min_w(0).truncate().text_color(it.draft ? t.muted : t.foreground).child(it.title)))
+          .child(div().flex_1().min_w(0).truncate().tooltip(it.title).text_color(it.draft ? t.muted : t.foreground).child(it.title)))
         .child(h_flex().gap(6).text_size(11).text_color(t.dim).min_w(0)
           .when(it.draft, (e) => e.child(div().px(4).rounded(0).border_1().border_color(t.border).child("Draft")))
-          .child(div().flex_1().min_w(0).truncate().child(meta))
+          .child(div().flex_1().min_w(0).truncate().when(Boolean(meta), (e) => e.tooltip(meta)).child(meta))
           .child(div().flex_none().child(ago(it.updated)))));
   }
 
